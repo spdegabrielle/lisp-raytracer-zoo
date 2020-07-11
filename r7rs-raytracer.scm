@@ -14,12 +14,11 @@
 ;;; along with this program. If not, see
 ;;; <http://www.gnu.org/licenses/>.
 
-
-;;;
-;;; Procedures that should be standard, but aren't.
-;;;
+(use srfi-1)
 
-(define (square x) (* x x))
+(define (println . items)
+  (for-each display items)
+  (newline))
 
 (define (reduce proc list init)
   (define (reduce-iter list result)
@@ -27,6 +26,35 @@
         result
         (reduce-iter (cdr list) (proc result (car list)))))
   (reduce-iter list init))
+
+(define (sum list) (reduce (lambda (a b) (+ a b)) list 0))
+
+(define (square x) (* x x))
+
+(define (some n) (cons 'some n))
+(define (none)   'none)
+
+(define (is-some? n) (and (pair? n) (eq? 'some (car n))))
+(define (is-none? n) (eq? 'none n))
+
+(define (unwrap n)
+  (if (is-some? n)
+      (cdr n)
+      (error "Tried to unwrap `none'.")))
+
+(define (map-option proc n)
+  (if (is-some? n)
+      (some (proc (unwrap n)))
+      n))
+
+(define-syntax maybe-bind
+  (syntax-rules ()
+    ((maybe-bind ((name option) ...)
+       body)
+     (if (every is-some? (list option ...))
+         (let ((name (unwrap option))
+               ...)
+           body)))))
 
 
 ;;;
@@ -46,7 +74,7 @@ format (PPM), writing the result to `(current-output-port)'."
            (display (car values))
            (display " ")
            (delimit-values (cdr values)))))
-  
+
   ;; Magic
   (delimit-values '("P3"))
 
@@ -55,7 +83,7 @@ format (PPM), writing the result to `(current-output-port)'."
 
   ;; Depth
   (delimit-values '("255"))
-  
+
   ;; Image contents
   (for-each delimit-values (vector->list pixels)))
 
@@ -108,6 +136,19 @@ multiplication."
   (vec3-bind (((x y z) u))
     (make-vec3 (* c x) (* c y) (* c z))))
 
+(define (vec3-dot u v)
+  "Return the dot product of the vectors U and V."
+  (+ (* (vec3-x u) (vec3-x v))
+     (* (vec3-y u) (vec3-y v))
+     (* (vec3-z u) (vec3-z v))))
+
+(define (vec3-cross u v)
+  "Return the cross product of the vectors U and V."
+  (vec3-bind (((x1 y1 z1) u) ((x2 y2 z2) v))
+    (make-vec3 (- (* y1 z2) (* z1 y2))
+               (- (* z1 x2) (* x1 z2))
+               (- (* x1 y2) (* y1 x2)))))
+
 (define (vec3->string u)
   "Return a string representation of the vector U."
   (vec3-bind (((x y z) u))
@@ -139,43 +180,255 @@ multiplication."
 
 
 
-;; Time-variant position.
 (define-record-type <ray>
   (make-ray origin direction)
   ray?
   (origin    ray-origin)
   (direction ray-direction))
 
-;; Arbitrarily-chosen constants for rendering.
+(define (ray-point-at ray t)
+  "Return the position of RAY at time T."
+  (vec3+ (ray-origin ray) (vec3* t (ray-direction ray))))
+
+(define (degrees->radians d)
+  "Convert D, a value in degrees, to radians."
+  (let ((pi 3.1415926535897932384626433))
+    (* d (/ pi 360))))
+
+(define (coordinate->ray x y)
+  "Return the ray corresponding to the point X, Y on the viewport plane."
+  (let* ((dist 1.0)
+         (top    (* dist (tan (degrees->radians camera-fov))))
+         (right  (* top image-aspect-ratio))
+         (bottom (- top))
+         (left   (- right))
+         (W (vec3-normalize (vec3- camera-position camera-target)))
+         (U (vec3-normalize (vec3-cross camera-up W)))
+         (V (vec3-cross W U))
+         (corner (vec3+ camera-position
+                        (vec3* left     U)
+                        (vec3* bottom   V)
+                        (vec3* (- dist) W)))
+         (across (vec3* (* 2 right) U))
+         (up     (vec3* (* 2 top)   V)))
+    (make-ray camera-position
+              (vec3-normalize
+               (vec3+ corner
+                      (vec3* x across)
+                      (vec3* y up)
+                      (vec3* (- 1) camera-position))))))
+
+
+;;;
+;;; Shapes and generic procedures for working with them.
+;;;
+
+(define-record-type <plane>
+  (make-plane p0 n material)
+  plane?
+  (p0       plane-p0)
+  (n        plane-n)
+  (material plane-material))
+
+(define (intersect-plane ray shape t-min t-max)
+  (let* ((normal (vec3-normalize (plane-n shape)))
+         (denominator (vec3-dot (ray-direction ray) normal)))
+    (if (zero? denominator)
+        (none)
+        (let ((t (/ (vec3-dot (vec3- (plane-p0 shape) (ray-origin ray))
+                              normal)
+                    denominator)))
+          (if (<= t-min t t-max)
+              (some t)
+              (none))))))
+
+(define-record-type <sphere>
+  (make-sphere center radius material)
+  sphere?
+  (center   sphere-center)
+  (radius   sphere-radius)
+  (material sphere-material))
+
+(define (intersect-sphere ray shape t-min t-max)
+  (let* ((oc (vec3- (ray-origin ray) (sphere-center shape)))
+         (A  (vec3-dot (ray-direction ray) (ray-direction ray)))
+         (B  (* 2.0 (vec3-dot oc (ray-direction ray))))
+         (C  (- (vec3-dot oc oc) (square (sphere-radius shape))))
+
+         (discriminant (- (square B) (* 4 A C)))
+         (t (if (zero? discriminant)
+                (/ (- B) (* 2 A))
+                (let ((p (/ (+ (- B) (sqrt discriminant)) (* 2 A)))
+                      (m (/ (- (- B) (sqrt discriminant)) (* 2 A))))
+                  (if (>= m t-min) m p)))))
+    (if (and (not (negative? discriminant))
+             (<= t-min t t-max))
+        (some t)
+        (none))))
+
+(define (intersect ray shape t-min t-max)
+  "If RAY intersects SHAPE with T-MIN ≤ t ≤ T-MAX, return (some . t). Otherwise,
+return 'none."
+  (let ((proc (cond ((plane?  shape) intersect-plane)
+                    ((sphere? shape) intersect-sphere))))
+    (proc ray shape t-min t-max)))
+
+(define (normal-plane shape position)
+  (vec3-normalize (plane-n shape)))
+
+(define (normal-sphere shape position)
+  (vec3-normalize (vec3- position (sphere-center shape))))
+
+(define (normal shape position)
+  "Return the normal vector of SHAPE at POSITION."
+  (let ((proc (cond ((plane?  shape) normal-plane)
+                    ((sphere? shape) normal-sphere))))
+    (proc shape position)))
+
+(define (material shape)
+  "Return the material associated with SHAPE's surface."
+  (let ((proc (cond ((plane?  shape) plane-material)
+                    ((sphere? shape) sphere-material))))
+    (proc shape)))
+
+
+;;;
+;;; Lights, and generic procedures for working with them.
+;;;
+
+(define-record-type <light-sample>
+  (make-light-sample intensity position direction)
+  light-sample?
+  (intensity light-sample-intensity)
+  (position  light-sample-position)
+  (direction light-sample-direction))
+
+(define-record-type <spot-light>
+  (make-spot-light from to intensity exponent cutoff-angle)
+  spot-light?
+  (from         spot-light-from)
+  (to           spot-light-to)
+  (intensity    spot-light-intensity)
+  (exponent     spot-light-exponent)
+  (cutoff-angle spot-light-cutoff-angle))
+
+(define (spot-light-at light point)
+  (let* ((position  (spot-light-from light))
+         (target    (spot-light-to   light))
+         (direction (vec3- position point))
+         (cutoff    (spot-light-cutoff-angle light))
+         (pf (vec3-normalize (vec3- point position)))
+         (intensity (if (< (vec3-dot pf (vec3-normalize (vec3- target position)))
+                           (cos (degrees->radians cutoff)))
+                        (make-vec3 0.00 0.00 0.00)
+                        (vec3* (* (/ 1 (square (vec3-magnitude direction)))
+                                  (expt (vec3-dot pf (vec3-normalize (vec3- target position)))
+                                        (spot-light-exponent light)))
+                               (spot-light-intensity light)))))
+    (make-light-sample intensity position (vec3-normalize direction))))
+
+(define (light-at light point)
+  "Return the <light-sample> produced by LIGHT at POINT."
+  (let ((proc (cond ((spot-light? light) spot-light-at))))
+    (proc light point)))
+
+
+;;;
+;;; Materials.
+;;;
+
+(define-record-type <material>
+  (make-material ka kd ks kr kt p ior)
+  material?
+  (ka  material-ka)
+  (kd  material-kd)
+  (ks  material-ks)
+  (kr  material-kr)
+  (kt  material-kt)
+  (p   material-p)
+  (ior material-ior))
+
+(define (diffuse-material ka kd)      (make-material ka kd '() '() '() '() '()))
+(define (phong-material   ka kd ks p) (make-material ka kd ks  '() '() p   '()))
+
+(define (reflect l n)
+  "Compute reflected vector, by mirroring l around n."
+  (vec3- (vec3* (* 2.00 (vec3-dot n l)) n) l))
+
+(define (shade-pixel shape position origin)
+  (let* ((ka (material-ka (material shape)))
+         (kd (material-kd (material shape)))
+         (ks (material-ks (material shape)))
+         (p  (material-p  (material shape)))
+         (normal (normal shape position))
+         (Ia (vec3-bind (((x1 y1 z1) ka)
+                         ((x2 y2 z2) ambient-light))
+               (make-vec3 (* x1 x2) (* y1 y2) (* z1 z2))))
+         (Id (apply vec3+
+                    (map (lambda (light)
+                           (let* ((sample (light-at light position))
+                                  (direction (light-sample-direction sample))
+                                  (intensity (light-sample-intensity sample))
+                                  (scalar (max (vec3-dot normal direction) 0)))
+                             (vec3-bind (((x1 y1 z1) kd)
+                                         ((x2 y2 z2) intensity))
+                                        (make-vec3 (* x1 x2 scalar)
+                                                   (* y1 y2 scalar)
+                                                   (* z1 z2 scalar)))))
+                         lights)))
+         (Is (if (not (null? ks))
+                 (apply vec3+
+                        (map (lambda (light)
+                               (let* ((sample (light-at light position))
+                                      (point  (light-sample-position sample))
+                                      (intensity (light-sample-intensity sample))
+                                      (l (vec3-normalize (vec3- point position)))
+                                      (v (vec3-normalize (vec3- origin position)))
+                                      (r (reflect l normal))
+                                      (scalar (expt (max 0 (vec3-dot v r)) p)))
+                                 (vec3-bind (((x1 y1 z1) ks)
+                                             ((x2 y2 z2) intensity))
+                                   (make-vec3 (* x1 x2 scalar)
+                                              (* y1 y2 scalar)
+                                              (* z1 z2 scalar)))))
+                             lights))
+                 (make-vec3 0.00 0.00 0.00))))
+    (vec3-bind (((x y z) (vec3+ Ia Id Is)))
+      (make-vec3 (min 1.0 x) (min 1.0 y) (min 1.0 z)))))
+
+
+;;;
+;;; Scene graph.
+;;;
+
+;; Arbitrarily-chosen parameters for rendering.
 
 (define image-width  1920)
 (define image-height 1080)
 (define image-aspect-ratio (/ image-width image-height))
 
-(define viewport-height 2.0)
-(define viewport-width (* viewport-height image-aspect-ratio))
+(define camera-position (make-vec3  8.00  5.00  9.00))
+(define camera-target   (make-vec3  0.25  0.00  0.50))
+(define camera-up       (make-vec3  0.00  1.00  0.00))
+(define camera-fov      30)
 
-(define camera-position (make-vec3 0 0 0))
-(define focal-length 1.0)
-
-(define (coordinate->ray x y)
-  "Return the ray towards the point on the viewport plane corresponding to X, Y
-in image space."
-  (let* ((u (/ x (- image-width  1)))
-         (v (/ y (- image-height 1)))
-         (horizontal (make-vec3 viewport-width 0 0))
-         (vertical   (make-vec3 0 viewport-height 0))
-         (corner (vec3- camera-position
-                        (vec3* 0.5 horizontal)
-                        (vec3* 0.5 vertical)
-                        (make-vec3 0 0 focal-length))))
-    (make-ray camera-position (vec3+ corner
-                                     (vec3* u horizontal)
-                                     (vec3* v vertical)
-                                     (vec3* (- 1) camera-position)))))
-
-
-
+;; Color of light in the scene that does not originate from a light source.
+(define ambient-light (make-vec3 0.01 0.01 0.01))
+(define lights (list (make-spot-light (make-vec3  10.00  10.00   5.00)
+                                      (make-vec3   0.00   0.00   0.00)
+                                      (make-vec3 100.00  96.00  88.00)
+                                      50
+                                      15)))
+(define shapes (list (make-sphere (make-vec3 -0.25 0.00 0.25)
+                                  1.25
+                                  (phong-material (make-vec3 1.0 0.2 0.2)
+                                                  (make-vec3 1.0 0.2 0.2)
+                                                  (make-vec3 2.0 2.0 2.0)
+                                                  20))
+                     (make-plane (make-vec3  0.00 -1.25  0.00)
+                                 (make-vec3  0.00  1.00  0.00)
+                                 (diffuse-material (make-vec3 1.0 1.0 0.2)
+                                                   (make-vec3 1.0 1.0 0.2)))))
 
 (define (lerp a b t)
   "Interpolate between A and B with parameter T."
@@ -189,13 +442,47 @@ in image space."
             (inexact->exact (round (* 255 (lerp 1.0 0.7 t))))
             (inexact->exact (round (* 255 (lerp 1.0 1.0 t))))))))
 
+(define (ray-intersect-scene ray)
+  "Return the nearest shape with which RAY intersects as (some . (shape . point)), if any.
+Otherwise, return 'none."
+  (map-option
+   (lambda (pair)
+     (list (car pair)
+           (ray-point-at ray (cadr pair))))
+   (reduce (lambda (a b)
+             (cond ((is-none? a) b)
+                   ((is-none? b) a)
+                   (else
+                    (maybe-bind ((t1 a) (t2 b))
+                      (if (> (cadr t1) (cadr t2)) b a)))))
+           (map (lambda (shape)
+                  (let ((intersection (intersect ray shape 0.001 10000)))
+                    (map-option (lambda (t)
+                                  (list shape t))
+                                intersection)))
+                shapes)
+           (none))))
+
 (let ((image (make-vector (* image-width image-height) '(0 0 0))))
   (define (coordinate->index x y)
     (+ x (* y image-width)))
+  (define (screen->viewport x y)
+    (values (/ x image-width)
+            (/ (- image-height 1 y)
+               image-height)))
+  (define (vec3->color u)
+    (map (lambda (n) (inexact->exact (round (* 255 n)))) (vec3->list u)))
   (let loop1 ((x 0))
     (let loop2 ((y 0))
-      (unless (>= y (- image-height 1))
-        (vector-set! image (coordinate->index x y) (ray-color (coordinate->ray x y)))
+      (unless (>= y image-height)
+        (vector-set! image (coordinate->index x y)
+                     (let-values (((x y) (screen->viewport x y)))
+                       (let* ((ray (coordinate->ray x y))
+                              (intersection (ray-intersect-scene ray)))
+                         (if (is-some? intersection)
+                             (let-values (((shape position) (apply values (unwrap intersection))))
+                               (vec3->color (shade-pixel shape position (ray-origin ray))))
+                             (ray-color (coordinate->ray x y))))))
         (loop2 (+ y 1))))
     (unless (>= x (- image-width 1))
       (loop1 (+ x 1))))
