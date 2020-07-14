@@ -14,7 +14,9 @@
 ;;; along with this program. If not, see
 ;;; <http://www.gnu.org/licenses/>.
 
-(use srfi-1)
+(import (scheme base)
+        (scheme inexact)
+        (scheme write))
 
 (define (println . items)
   (for-each display items)
@@ -28,6 +30,8 @@
   (reduce-iter list init))
 
 (define (sum list) (reduce (lambda (a b) (+ a b)) list 0))
+(define (every pred list)
+  (reduce (lambda (a b) (or a (pred b))) list #f))
 
 (define (square x) (* x x))
 
@@ -61,9 +65,9 @@
 ;;; Image encoding.
 ;;;
 
+;; Encode the WIDTH by HEIGHT image given as PIXELS into the portable pixmap
+;; format (PPM), writing the result to `(current-output-port)'.
 (define (write-ppm width height pixels)
-  "Encode the WIDTH by HEIGHT image given as PIXELS into the portable pixmap
-format (PPM), writing the result to `(current-output-port)'."
   (define (delimit-values values)
     (cond ((null? values)
            (newline))
@@ -112,8 +116,8 @@ format (PPM), writing the result to `(current-output-port)'."
                   ...)
        body))))
 
+;; Return the sum of VECS, as in vector space addition.
 (define (vec3+ . vecs)
-  "Return the sum of VECS, as in vector space addition."
   (define (add u v)
     (vec3-bind (((x1 y1 z1) u) ((x2 y2 z2) v))
       (make-vec3 (+ x1 x2) (+ y1 y2) (+ z1 z2))))
@@ -121,8 +125,8 @@ format (PPM), writing the result to `(current-output-port)'."
       (make-vec3 0 0 0)
       (reduce add (cdr vecs) (car vecs))))
 
+;; Return the difference of VECS, as in vector space subtraction.
 (define (vec3- . vecs)
-  "Return the difference of VECS, as in vector space subtraction."
   (define (sub u v)
     (vec3-bind (((x1 y1 z1) u) ((x2 y2 z2) v))
       (make-vec3 (- x1 x2) (- y1 y2) (- z1 z2))))
@@ -130,27 +134,27 @@ format (PPM), writing the result to `(current-output-port)'."
       (make-vec3 0 0 0)
       (reduce sub (cdr vecs) (car vecs))))
 
+;; Return the vector U scaled by a constant C, as in vector space scalar
+;; multiplication.
 (define (vec3* c u)
-  "Return the vector U scaled by a constant C, as in vector space scalar
-multiplication."
   (vec3-bind (((x y z) u))
     (make-vec3 (* c x) (* c y) (* c z))))
 
+;; Return the dot product of the vectors U and V.
 (define (vec3-dot u v)
-  "Return the dot product of the vectors U and V."
   (+ (* (vec3-x u) (vec3-x v))
      (* (vec3-y u) (vec3-y v))
      (* (vec3-z u) (vec3-z v))))
 
+;; Return the cross product of the vectors U and V.
 (define (vec3-cross u v)
-  "Return the cross product of the vectors U and V."
   (vec3-bind (((x1 y1 z1) u) ((x2 y2 z2) v))
     (make-vec3 (- (* y1 z2) (* z1 y2))
                (- (* z1 x2) (* x1 z2))
                (- (* x1 y2) (* y1 x2)))))
 
+;; Return a string representation of the vector U.
 (define (vec3->string u)
-  "Return a string representation of the vector U."
   (vec3-bind (((x y z) u))
     (parameterize
         ((current-output-port
@@ -164,18 +168,18 @@ multiplication."
       (display ">")
       (get-output-string (current-output-port)))))
 
+;; Return a list (x y z) of the components of vector U.
 (define (vec3->list u)
-  "Return a list (x y z) of the components of vector U."
   (vec3-bind (((x y z) u))
     (list x y z)))
 
+;; Return the magnitude of vector U.
 (define (vec3-magnitude u)
-  "Return the magnitude of vector U."
   (vec3-bind (((x y z) u))
     (sqrt (+ (square x) (square y) (square z)))))
 
+;; Return the normal vector parallel to vector U.
 (define (vec3-normalize u)
-  "Return the normal vector parallel to vector U."
   (vec3* (/ 1 (vec3-magnitude u)) u))
 
 
@@ -186,17 +190,17 @@ multiplication."
   (origin    ray-origin)
   (direction ray-direction))
 
+;; Return the position of RAY at time T.
 (define (ray-point-at ray t)
-  "Return the position of RAY at time T."
   (vec3+ (ray-origin ray) (vec3* t (ray-direction ray))))
 
+;; Convert D, a value in degrees, to radians.
 (define (degrees->radians d)
-  "Convert D, a value in degrees, to radians."
   (let ((pi 3.1415926535897932384626433))
     (* d (/ pi 360))))
 
+;; Return the ray corresponding to the point X, Y on the viewport plane.
 (define (coordinate->ray x y)
-  "Return the ray corresponding to the point X, Y on the viewport plane."
   (let* ((dist 1.0)
          (top    (* dist (tan (degrees->radians camera-fov))))
          (right  (* top image-aspect-ratio))
@@ -256,19 +260,19 @@ multiplication."
          (C  (- (vec3-dot oc oc) (square (sphere-radius shape))))
 
          (discriminant (- (square B) (* 4 A C)))
-         (t (if (zero? discriminant)
-                (/ (- B) (* 2 A))
+         (t (if (positive? discriminant)
                 (let ((p (/ (+ (- B) (sqrt discriminant)) (* 2 A)))
                       (m (/ (- (- B) (sqrt discriminant)) (* 2 A))))
-                  (if (>= m t-min) m p)))))
+                  (if (>= m t-min) m p))
+                (/ (- B) (* 2 A)))))
     (if (and (not (negative? discriminant))
              (<= t-min t t-max))
         (some t)
         (none))))
 
+;; If RAY intersects SHAPE with T-MIN ≤ t ≤ T-MAX, return (some . t). Otherwise,
+;; return 'none.
 (define (intersect ray shape t-min t-max)
-  "If RAY intersects SHAPE with T-MIN ≤ t ≤ T-MAX, return (some . t). Otherwise,
-return 'none."
   (let ((proc (cond ((plane?  shape) intersect-plane)
                     ((sphere? shape) intersect-sphere))))
     (proc ray shape t-min t-max)))
@@ -279,14 +283,14 @@ return 'none."
 (define (normal-sphere shape position)
   (vec3-normalize (vec3- position (sphere-center shape))))
 
+;; Return the normal vector of SHAPE at POSITION.
 (define (normal shape position)
-  "Return the normal vector of SHAPE at POSITION."
   (let ((proc (cond ((plane?  shape) normal-plane)
                     ((sphere? shape) normal-sphere))))
     (proc shape position)))
 
+;; Return the material associated with SHAPE's surface.
 (define (material shape)
-  "Return the material associated with SHAPE's surface."
   (let ((proc (cond ((plane?  shape) plane-material)
                     ((sphere? shape) sphere-material))))
     (proc shape)))
@@ -327,8 +331,8 @@ return 'none."
                                (spot-light-intensity light)))))
     (make-light-sample intensity position (vec3-normalize direction))))
 
+;; Return the <light-sample> produced by LIGHT at POINT.
 (define (light-at light point)
-  "Return the <light-sample> produced by LIGHT at POINT."
   (let ((proc (cond ((spot-light? light) spot-light-at))))
     (proc light point)))
 
@@ -351,8 +355,8 @@ return 'none."
 (define (diffuse-material ka kd)      (make-material ka kd '() '() '() '() '()))
 (define (phong-material   ka kd ks p) (make-material ka kd ks  '() '() p   '()))
 
+;; Compute reflected vector, by mirroring l around n.
 (define (reflect l n)
-  "Compute reflected vector, by mirroring l around n."
   (vec3- (vec3* (* 2.00 (vec3-dot n l)) n) l))
 
 (define (shade-pixel shape position origin)
@@ -430,21 +434,20 @@ return 'none."
                                  (diffuse-material (make-vec3 1.0 1.0 0.2)
                                                    (make-vec3 1.0 1.0 0.2)))))
 
-(define (lerp a b t)
-  "Interpolate between A and B with parameter T."
-  (+ (* (- 1.0 t) a) (* t b)))
+;; Interpolate between A and B with parameter T.
+(define (lerp a b t) (+ (* (- 1.0 t) a) (* t b)))
 
+;; Return an arbitrary color for R.
 (define (ray-color r)
-  "Return an arbitrary color for R."
   (vec3-bind (((x y z) (vec3-normalize (ray-direction r))))
     (let ((t (* 0.5 (+ y 1.0))))
-      (list (inexact->exact (round (* 255 (lerp 1.0 0.5 t))))
-            (inexact->exact (round (* 255 (lerp 1.0 0.7 t))))
-            (inexact->exact (round (* 255 (lerp 1.0 1.0 t))))))))
+      (list (exact (round (* 255 (lerp 1.0 0.5 t))))
+            (exact (round (* 255 (lerp 1.0 0.7 t))))
+            (exact (round (* 255 (lerp 1.0 1.0 t))))))))
 
+;; Return the nearest shape with which RAY intersects as (some . (shape .
+;; point)), if any. Otherwise, return 'none.
 (define (ray-intersect-scene ray)
-  "Return the nearest shape with which RAY intersects as (some . (shape . point)), if any.
-Otherwise, return 'none."
   (map-option
    (lambda (pair)
      (list (car pair)
@@ -471,7 +474,7 @@ Otherwise, return 'none."
             (/ (- image-height 1 y)
                image-height)))
   (define (vec3->color u)
-    (map (lambda (n) (inexact->exact (round (* 255 n)))) (vec3->list u)))
+    (map (lambda (n) (exact (round (* 255 n)))) (vec3->list u)))
   (let loop1 ((x 0))
     (let loop2 ((y 0))
       (unless (>= y image-height)
