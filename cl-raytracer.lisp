@@ -14,6 +14,22 @@
 ;;; along with this program. If not, see
 ;;; <http://www.gnu.org/licenses/>.
 
+(defun make-some (n) (cons 'some n))
+(defun make-none ()  'none)
+
+(defun some-p (n) (and (consp n) (eq 'some (car n))))
+(defun none-p (n) (eq 'none n))
+
+(defun unwrap (n)
+  (if (some-p n)
+      (cdr n)
+      (error "Tried to unwrap `none'.")))
+
+(defun map-option (proc n)
+  (if (some-p n)
+      (make-some (funcall proc (unwrap n)))
+      n))
+
 
 ;;;
 ;;; Image encoding.
@@ -69,6 +85,12 @@ format (PPM), writing the result to `(current-output-port)'."
   (with-slots (x y z) u
     (make-vec3 :x (* c x) :y (* c y) :z (* c z))))
 
+(defun vec3-dot (u v)
+  "Return the dot product of the vectors U and V."
+  (+ (* (vec3-x u) (vec3-x v))
+     (* (vec3-y u) (vec3-y v))
+     (* (vec3-z u) (vec3-z v))))
+
 (defun vec3-cross (u v)
   "Return the cross product of the vectors U and V."
   (with-slots ((x1 x) (y1 y) (z1 z)) u
@@ -88,14 +110,55 @@ format (PPM), writing the result to `(current-output-port)'."
 
 (defstruct ray origin direction)
 
-(defun ray-point-at (r)
+(defmethod point-at ((r ray) time)
   "Return the position of RAY at time T."
   (with-slots (origin direction) r
-    (vec3+ origin (vec3* t direction))))
+    (vec3+ origin (vec3* time direction))))
 
 (defun to-radians (d)
   "Convert D, a value in degrees, to radians."
   (* d (/ PI 360)))
+
+
+;;;
+;;; Shapes and generic procedures for working with them.
+;;;
+
+(defstruct plane p0 n material)
+
+(defmethod intersect (ray (p plane) t-min t-max)
+  (with-slots (p0 (plane-normal n)) p
+    (with-slots (origin direction) ray
+      (let* ((normal (vec3-normalize plane-normal))
+             (denominator (vec3-dot direction normal)))
+        (if (zerop denominator)
+            (make-none)
+            (let ((time (/ (vec3-dot (vec3- p0 origin) normal)
+                           denominator)))
+              (if (<= t-min time t-max)
+                  (make-some time)
+                  (make-none))))))))
+
+(defstruct sphere center radius material)
+
+(defmethod intersect (ray (s sphere) t-min t-max)
+  (with-slots (origin direction) ray
+    (with-slots (center radius) s
+      (let* ((oc (vec3* (- 1) (vec3- center origin)))
+             (A  (vec3-dot direction direction))
+             (B  (* 2.0 (vec3-dot oc direction)))
+             (C  (- (vec3-dot oc oc) (square radius)))
+
+             (discriminant (- (square B) (* 4 A C)))
+             (time (if (plusp discriminant)
+                       (let ((p (/ (+ (- B) (sqrt discriminant)) (* 2 A)))
+                             (m (/ (- (- B) (sqrt discriminant)) (* 2 A))))
+                         (if (>= m t-min) m p))
+                       (/ (- B) (* 2 A)))))
+        (if (and (not (minusp discriminant))
+                 (<= t-min time t-max))
+            (make-some time)
+            (make-none))))))
 
 
 ;;;
@@ -110,6 +173,22 @@ format (PPM), writing the result to `(current-output-port)'."
 (defvar camera-target   (make-vec3 :x 0.25 :y 0.00 :z 0.50))
 (defvar camera-up       (make-vec3 :x 0.00 :y 1.00 :z 0.00))
 (defvar camera-fov      30)
+
+(defvar shapes (list (make-sphere :center (make-vec3 :x -0.25 :y 0.00 :z 0.25)
+                                  :radius 1.25
+                                  ;; (phong-material (make-vec3 1.0 0.2 0.2)
+                                  ;;                 (make-vec3 1.0 0.2 0.2)
+                                  ;;                 (make-vec3 2.0 2.0 2.0)
+                                  ;;                 20)
+                                  :material nil
+                                  )
+                     ;; (make-plane :p0 (make-vec3 :x  0.00 :y -1.25 :z  0.00)
+                     ;;             :n (make-vec3 :x  0.00 :y  1.00 :z  0.00)
+                     ;;             ;; (diffuse-material (make-vec3 1.0 1.0 0.2)
+                     ;;             ;;                   (make-vec3 1.0 1.0 0.2))
+                     ;;             :material nil
+                     ;;             )
+                     ))
 
 (defun coord-to-ray (x y)
   "Return the ray corresponding to the point X, Y on the viewport plane."
@@ -140,17 +219,42 @@ format (PPM), writing the result to `(current-output-port)'."
 
 (defun ray-color (r)
   "Return an arbitrary color for R."
-  (let* ((y (slot-value (slot-value r 'direction) 'y))
+  (let* ((y (vec3-y (ray-direction r)))
          (time (* 0.5 (+ y 1.0))))
     (list (round (* 255 (lerp 1.0 0.5 time)))
           (round (* 255 (lerp 1.0 0.7 time)))
           (round (* 255 (lerp 1.0 1.0 time))))))
 
+(defun ray-intersect-scene (ray)
+  "Return the nearest shape with which RAY intersects as (some . (shape .
+point)), if any. Otherwise, return 'none."
+  (map-option
+   #'(lambda (pair)
+       (list (car pair) (point-at ray (cadr pair))))
+   (reduce #'(lambda (a b)
+               (cond ((none-p a) b)
+                     ((none-p b) a)
+                     (t (let ((t1 (unwrap a))
+                              (t2 (unwrap b)))
+                          (if (> (cadr t1) (cadr t2)) b a)))))
+           (mapcar #'(lambda (shape)
+                       (let ((intersection (intersect ray shape 0.001 10000)))
+                         (map-option #'(lambda (time) (list shape time)) intersection)))
+                   shapes)
+           :initial-value (make-none))))
+
 (let ((image (make-array (* image-width image-height) :initial-element '(0 0 0))))
   (flet ((coord-to-index (x y)
-           (+ x (* y image-width))))
-    (dotimes (x (1- image-width))
+           (+ x (* y image-width)))
+         (screen-to-viewport (x y)
+           (values (coerce (/ x image-width) 'real)
+                   (coerce (/ (- image-height 1 y) image-height) 'real))))
+    (dotimes (x image-width)
       (dotimes (y image-height)
         (setf (elt image (coord-to-index x y))
-              (ray-color (coord-to-ray x y))))))
+              (multiple-value-bind (x y) (screen-to-viewport x y)
+                (let ((ray (coord-to-ray x y)))
+                  (if (some-p (ray-intersect-scene ray))
+                      (list 0 0 0)
+                      (ray-color ray))))))))
   (write-ppm image-width image-height image))
