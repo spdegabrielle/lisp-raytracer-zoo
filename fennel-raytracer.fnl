@@ -21,10 +21,18 @@
       (tset result i (select i ...))))
   result)
 
+(fn map [f sequence]
+  (var result [])
+  (when sequence
+    (for [i 1 (# sequence)]
+      (tset result i (f (. sequence i)))))
+  result)
+
 (fn fold [f init sequence]
   (var result init)
-  (for [i 1 (# sequence)]
-    (set result (f result (. sequence i))))
+  (when sequence
+    (for [i 1 (# sequence)]
+      (set result (f result (. sequence i)))))
   result)
 
 
@@ -63,6 +71,10 @@ format (PPM), writing the result to standard output."
 
 (fn vec3 [x y z] {:x x :y y :z z})
 
+(fn vec3->string [v]
+  (let [{:x x :y y :z z} v]
+    (string.format "<%f, %f, %f>" x y z)))
+
 (fn vec3+ [...]
   "Return the sum of VECS, as in vector space addition."
   (fold (fn [a b]
@@ -74,12 +86,16 @@ format (PPM), writing the result to standard output."
 
 (fn vec3- [...]
   "Return the difference of VECS, as in vector space subtraction."
-  (fold (fn [a b]
-          (let [{:x α :y β :z γ} a
-                {:x x :y y :z z} b]
-            (vec3 (- α x) (- β y) (- γ z))))
-        (vec3 0.00 0.00 0.00)
-        (pack ...)))
+  (var seq (pack ...))
+  (if (= 0 (# seq))
+      (vec3 0.00 0.00 0.00)
+      (let [init (table.remove seq 1)]
+        (fold (fn [a b]
+                (let [{:x α :y β :z γ} a
+                      {:x x :y y :z z} b]
+                  (vec3 (- α x) (- β y) (- γ z))))
+              init
+              seq))))
 
 (fn vec3* [c u]
   "Return the vector U scaled by a constant C, as in vector space scalar
@@ -155,6 +171,91 @@ multiplication."
 
 
 ;;;
+;;; Shapes and generic procedures for working with them.
+;;;
+
+(fn intersect-plane [r shape t-min t-max]
+  (let [{ :n normal :p0 p0 } shape
+        { :origin origin :direction direction } r
+        normal (vec3-normalize normal)
+        denominator (vec3-dot direction normal)]
+    (if (~= 0 denominator)
+        (let [t (/ (vec3-dot (vec3- p0 origin) normal)
+                   denominator)]
+          (if (<= t-min t t-max) t)))))
+
+(fn plane [p0 n material]
+  {
+   :n n
+   :p0 p0
+   :material material
+
+   :intersect intersect-plane
+   :normal (fn [] (vec3-normalize n))
+   })
+
+(fn intersect-sphere [r shape t-min t-max]
+  (let [{ :origin origin :direction direction } r
+        { :center center :radius radius } shape
+        oc (vec3- origin center)
+        A  (vec3-dot direction direction)
+        B  (* 2.0 (vec3-dot oc direction))
+        C  (- (vec3-dot oc oc) (square radius))
+
+        discriminant (- (square B) (* 4 A C))
+        t (if (< 0 discriminant)
+              (let [p (/ (+ (- B) (math.sqrt discriminant)) (* 2 A))
+                    m (/ (- (- B) (math.sqrt discriminant)) (* 2 A))]
+                (if (>= m t-min) m p))
+              (/ (- B) (* 2 A)))]
+    (if (and (<= 0 discriminant) (<= t-min t t-max)) t)))
+
+(fn sphere [center radius material]
+  {
+   :center center
+   :radius radius
+   :material material
+
+   :intersect intersect-sphere
+   :normal (fn [position] (vec3-normalize (vec3- position center)))
+   })
+
+(global shapes [(sphere (vec3 -0.25 0.00 0.25)
+                        1.25
+                        nil
+                        ;; (phong-material (make-vec3 1.0 0.2 0.2)
+                        ;;                 (make-vec3 1.0 0.2 0.2)
+                        ;;                 (make-vec3 2.0 2.0 2.0)
+                        ;;                 20)
+                        )
+                (plane (vec3  0.00 -1.25  0.00)
+                       (vec3  0.00  1.00  0.00)
+                       nil
+                       ;; (diffuse-material (make-vec3 1.0 1.0 0.2)
+                       ;;                   (make-vec3 1.0 1.0 0.2))
+                       )])
+
+(fn ray-intersect-scene [r]
+  "Return the nearest shape with which RAY intersects, with the point, if any.
+Otherwise, return nil."
+  (match (fold (fn [a b]
+                 (if (= a :none) b
+                     (= b :none) a
+                     (let [{ :intersection t1} a
+                           { :intersection t2} b]
+                       (if (> t1 t2) b a))))
+               :none
+               (map (fn [shape]
+                      (let [intersect (. shape "intersect")
+                            intersection (intersect r shape 0.001 10000)]
+                        (if intersection
+                            { :shape shape :intersection intersection }
+                            :none)))
+                    shapes))
+    { :shape shape :intersection t} (let [] { :shape shape :point (point-at r t)})))
+
+
+;;;
 ;;; Scene graph.
 ;;;
 
@@ -181,7 +282,9 @@ multiplication."
   (for [x 0 image-width]
     (for [y 0 image-height]
       (let [r (coordinate->ray (screen->viewport x y))]
-        (set-pixel output x y (ray-color r)))))
+        (if (ray-intersect-scene r)
+            (set-pixel output x y [0 0 0])
+            (set-pixel output x y (ray-color r))))))
   (write-ppm output))
 
 (main)
