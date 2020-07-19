@@ -11,3 +11,6 @@ using various Lisps.
 
 - Scheme
   - R7RS
+  - R6RS
+  - Gerbil (Partial)
+- Common Lisp
