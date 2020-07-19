@@ -14,3 +14,4 @@ using various Lisps.
   - R6RS
   - Gerbil (Partial)
 - Common Lisp
+- Fennel

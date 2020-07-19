@@ -192,7 +192,7 @@ multiplication."
 
    :intersect intersect-plane
    :normal (fn [] (vec3-normalize n))
-   })
+  })
 
 (fn intersect-sphere [r shape t-min t-max]
   (let [{ :origin origin :direction direction } r
@@ -218,22 +218,117 @@ multiplication."
 
    :intersect intersect-sphere
    :normal (fn [position] (vec3-normalize (vec3- position center)))
+  })
+
+
+;;;
+;;; Lights, and generic procedures for working with them.
+;;;
+
+(fn light-sample [intensity position direction]
+  {
+   :intensity intensity
+   :position position
+   :direction direction
    })
 
+(fn spot-light-at [light point]
+  (let [{ :from position :to target
+          :intensity intensity :exponent exponent
+          :cutoff-angle cutoff} light
+        direction (vec3- position point)
+        pf (vec3-normalize (vec3- point position))
+        intensity (if (< (vec3-dot pf (vec3-normalize (vec3- target position)))
+                         (math.cos (degrees->radians cutoff)))
+                      (vec3 0.00 0.00 0.00)
+                      (vec3* (* (/ 1 (square (vec3-magnitude direction)))
+                                (math.pow (vec3-dot pf (vec3-normalize (vec3- target position)))
+                                      exponent))
+                             intensity))]
+    (light-sample intensity position (vec3-normalize direction))))
+
+(fn spot-light [from to intensity exponent cutoff-angle]
+  {
+   :from from
+   :to to
+   :intensity intensity
+   :exponent exponent
+   :cutoff-angle cutoff-angle
+
+   :sample-at spot-light-at
+  })
+
+
+;;;
+;;; Materials.
+;;;
+
+(fn diffuse-material [ka kd]      { :ka ka :kd kd})
+(fn phong-material   [ka kd ks p] { :ka ka :kd kd :ks ks :p p})
+
+(fn reflect [l n]
+  "Compute reflected vector, by mirroring l around n."
+  (vec3- (vec3* (* 2.00 (vec3-dot n l)) n) l))
+
+(fn max [a b] (if (>= a b) a b))
+(fn min [a b] (if (<  a b) a b))
+
+(global ambient-light (vec3 0.01 0.01 0.01))
+(global lights [(spot-light (vec3  10.00  10.00   5.00)
+                            (vec3   0.00   0.00   0.00)
+                            (vec3 100.00  96.00  88.00)
+                            50
+                            15)])
 (global shapes [(sphere (vec3 -0.25 0.00 0.25)
                         1.25
-                        nil
-                        ;; (phong-material (make-vec3 1.0 0.2 0.2)
-                        ;;                 (make-vec3 1.0 0.2 0.2)
-                        ;;                 (make-vec3 2.0 2.0 2.0)
-                        ;;                 20)
-                        )
+                        (phong-material (vec3 1.0 0.2 0.2)
+                                        (vec3 1.0 0.2 0.2)
+                                        (vec3 2.0 2.0 2.0)
+                                        20))
                 (plane (vec3  0.00 -1.25  0.00)
                        (vec3  0.00  1.00  0.00)
-                       nil
-                       ;; (diffuse-material (make-vec3 1.0 1.0 0.2)
-                       ;;                   (make-vec3 1.0 1.0 0.2))
-                       )])
+                       (diffuse-material (vec3 1.0 1.0 0.2)
+                                         (vec3 1.0 1.0 0.2)))])
+
+(fn shade-pixel [shape position origin]
+  (let [{:ka ka :kd kd :ks ks :p p} shape.material
+        normal (shape.normal position)
+        Ia (let [{:x α :y β :z γ} ka
+                 {:x x :y y :z z} ambient-light]
+             (vec3 (* α x) (* β y) (* γ z)))
+        Id (vec3+
+            (unpack
+             (map (fn [light]
+                    (let [sample (light.sample-at light position)
+                          { :direction direction :intensity intensity } sample
+                          scalar (max (vec3-dot normal direction) 0)
+                          {:x α :y β :z γ} kd
+                          {:x x :y y :z z} intensity]
+                      (vec3 (* α x scalar)
+                            (* β y scalar)
+                            (* γ z scalar))))
+                  lights)))
+        Is (if ks
+               (vec3+
+                (unpack
+                 (map (fn [light]
+                        (let [sample (light.sample-at light position)
+                              { :position point :intensity intensity } sample
+                              l (vec3-normalize (vec3- point position))
+                              v (vec3-normalize (vec3- origin position))
+                              r (reflect l normal)
+                              scalar (math.pow (max 0 (vec3-dot v r)) p)
+                              {:x α :y β :z γ} ks
+                              {:x x :y y :z z} intensity]
+                          (vec3 (* α x scalar)
+                                (* β y scalar)
+                                (* γ z scalar))))
+                      lights)))
+               (vec3 0.00 0.00 0.00))
+        {:x x :y y :z z} (vec3+ Ia Id Is)]
+    [(math.floor (* 255 (min 1.0 x)))
+     (math.floor (* 255 (min 1.0 y)))
+     (math.floor (* 255 (min 1.0 z)))]))
 
 (fn ray-intersect-scene [r]
   "Return the nearest shape with which RAY intersects, with the point, if any.
@@ -252,7 +347,7 @@ Otherwise, return nil."
                             { :shape shape :intersection intersection }
                             :none)))
                     shapes))
-    { :shape shape :intersection t} (let [] { :shape shape :point (point-at r t)})))
+    { :shape shape :intersection t } { :shape shape :point (point-at r t)}))
 
 
 ;;;
@@ -281,9 +376,11 @@ Otherwise, return nil."
   (var output (image image-width image-height))
   (for [x 0 image-width]
     (for [y 0 image-height]
-      (let [r (coordinate->ray (screen->viewport x y))]
-        (if (ray-intersect-scene r)
-            (set-pixel output x y [0 0 0])
+      (let [r (coordinate->ray (screen->viewport x y))
+            intersection (ray-intersect-scene r)]
+        (if intersection
+            (let [{ :shape shape :point point } intersection]
+              (set-pixel output x y (shade-pixel shape point camera-position)))
             (set-pixel output x y (ray-color r))))))
   (write-ppm output))
 
