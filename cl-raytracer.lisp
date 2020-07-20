@@ -121,7 +121,7 @@ format (PPM), writing the result to `(current-output-port)'."
 
 (defun to-radians (d)
   "Convert D, a value in degrees, to radians."
-  (* d (/ PI 360)))
+  (* d (/ PI 180)))
 
 
 ;;;
@@ -285,7 +285,7 @@ format (PPM), writing the result to `(current-output-port)'."
 (defun coord-to-ray (x y)
   "Return the ray corresponding to the point X, Y on the viewport plane."
   (let* ((dist 1.0)
-         (top    (* dist (tan (to-radians camera-fov))))
+         (top    (* dist (tan (/ (to-radians camera-fov) 2))))
          (right  (* top image-aspect-ratio))
          (bottom (- top))
          (left   (- right))

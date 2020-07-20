@@ -197,12 +197,12 @@
 ;; Convert D, a value in degrees, to radians.
 (define (degrees->radians d)
   (let ((pi 3.1415926535897932384626433))
-    (* d (/ pi 360))))
+    (* d (/ pi 180))))
 
 ;; Return the ray corresponding to the point X, Y on the viewport plane.
 (define (coordinate->ray x y)
   (let* ((dist 1.0)
-         (top    (* dist (tan (degrees->radians camera-fov))))
+         (top    (* dist (tan (/ (degrees->radians camera-fov) 2))))
          (right  (* top image-aspect-ratio))
          (bottom (- top))
          (left   (- right))

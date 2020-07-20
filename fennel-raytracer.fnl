@@ -130,7 +130,7 @@ multiplication."
 
 (fn degrees->radians [d]
   "Convert D, a value in degrees, to radians."
-  (* d (/ math.pi 360)))
+  (* d (/ math.pi 180)))
 
 (local image-width  1920)
 (local image-height 1080)
@@ -144,7 +144,7 @@ multiplication."
 (fn coordinate->ray [x y]
   "Return the ray corresponding to the point X, Y on the viewport plane."
   (let [dist 1.0
-        top    (* dist (math.tan (degrees->radians camera-fov)))
+        top    (* dist (math.tan (/ (degrees->radians camera-fov) 2)))
         right  (* top image-aspect-ratio)
         bottom (- top)
         left   (- right)
