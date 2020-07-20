@@ -14,12 +14,7 @@
 ;;; along with this program. If not, see
 ;;; <http://www.gnu.org/licenses/>.
 
-(fn pack [...]
-  (var result [])
-  (let [n (select "#" ...)]
-    (for [i 1 n]
-      (tset result i (select i ...))))
-  result)
+(local unpack (or _G.unpack table.unpack)) ; compatibility with newer luas
 
 (fn map [f sequence]
   (var result [])
@@ -82,11 +77,11 @@ format (PPM), writing the result to standard output."
                 {:x x :y y :z z} b]
             (vec3 (+ α x) (+ β y) (+ γ z))))
         (vec3 0.00 0.00 0.00)
-        (pack ...)))
+        [...]))
 
 (fn vec3- [...]
   "Return the difference of VECS, as in vector space subtraction."
-  (var seq (pack ...))
+  (var seq [...])
   (if (= 0 (# seq))
       (vec3 0.00 0.00 0.00)
       (let [init (table.remove seq 1)]
@@ -137,14 +132,14 @@ multiplication."
   "Convert D, a value in degrees, to radians."
   (* d (/ math.pi 360)))
 
-(global image-width  1920)
-(global image-height 1080)
-(global image-aspect-ratio (/ image-width image-height))
+(local image-width  1920)
+(local image-height 1080)
+(local image-aspect-ratio (/ image-width image-height))
 
-(global camera-position (vec3  8.00  5.00  9.00))
-(global camera-target   (vec3  0.25  0.00  0.50))
-(global camera-up       (vec3  0.00  1.00  0.00))
-(global camera-fov      30)
+(local camera-position (vec3  8.00  5.00  9.00))
+(local camera-target   (vec3  0.25  0.00  0.50))
+(local camera-up       (vec3  0.00  1.00  0.00))
+(local camera-fov      30)
 
 (fn coordinate->ray [x y]
   "Return the ray corresponding to the point X, Y on the viewport plane."
@@ -270,25 +265,23 @@ multiplication."
   "Compute reflected vector, by mirroring l around n."
   (vec3- (vec3* (* 2.00 (vec3-dot n l)) n) l))
 
-(fn max [a b] (if (>= a b) a b))
-(fn min [a b] (if (<  a b) a b))
 
-(global ambient-light (vec3 0.01 0.01 0.01))
-(global lights [(spot-light (vec3  10.00  10.00   5.00)
-                            (vec3   0.00   0.00   0.00)
-                            (vec3 100.00  96.00  88.00)
-                            50
-                            15)])
-(global shapes [(sphere (vec3 -0.25 0.00 0.25)
-                        1.25
-                        (phong-material (vec3 1.0 0.2 0.2)
-                                        (vec3 1.0 0.2 0.2)
-                                        (vec3 2.0 2.0 2.0)
-                                        20))
-                (plane (vec3  0.00 -1.25  0.00)
-                       (vec3  0.00  1.00  0.00)
-                       (diffuse-material (vec3 1.0 1.0 0.2)
-                                         (vec3 1.0 1.0 0.2)))])
+(local ambient-light (vec3 0.01 0.01 0.01))
+(local lights [(spot-light (vec3  10.00  10.00   5.00)
+                           (vec3   0.00   0.00   0.00)
+                           (vec3 100.00  96.00  88.00)
+                           50
+                           15)])
+(local shapes [(sphere (vec3 -0.25 0.00 0.25)
+                       1.25
+                       (phong-material (vec3 1.0 0.2 0.2)
+                                       (vec3 1.0 0.2 0.2)
+                                       (vec3 2.0 2.0 2.0)
+                                       20))
+               (plane (vec3  0.00 -1.25  0.00)
+                      (vec3  0.00  1.00  0.00)
+                      (diffuse-material (vec3 1.0 1.0 0.2)
+                                        (vec3 1.0 1.0 0.2)))])
 
 (fn shade-pixel [shape position origin]
   (let [{:ka ka :kd kd :ks ks :p p} shape.material
@@ -301,7 +294,7 @@ multiplication."
              (map (fn [light]
                     (let [sample (light.sample-at light position)
                           { :direction direction :intensity intensity } sample
-                          scalar (max (vec3-dot normal direction) 0)
+                          scalar (math.max (vec3-dot normal direction) 0)
                           {:x α :y β :z γ} kd
                           {:x x :y y :z z} intensity]
                       (vec3 (* α x scalar)
@@ -317,7 +310,7 @@ multiplication."
                               l (vec3-normalize (vec3- point position))
                               v (vec3-normalize (vec3- origin position))
                               r (reflect l normal)
-                              scalar (math.pow (max 0 (vec3-dot v r)) p)
+                              scalar (math.pow (math.max 0 (vec3-dot v r)) p)
                               {:x α :y β :z γ} ks
                               {:x x :y y :z z} intensity]
                           (vec3 (* α x scalar)
@@ -326,9 +319,9 @@ multiplication."
                       lights)))
                (vec3 0.00 0.00 0.00))
         {:x x :y y :z z} (vec3+ Ia Id Is)]
-    [(math.floor (* 255 (min 1.0 x)))
-     (math.floor (* 255 (min 1.0 y)))
-     (math.floor (* 255 (min 1.0 z)))]))
+    [(math.floor (* 255 (math.min 1.0 x)))
+     (math.floor (* 255 (math.min 1.0 y)))
+     (math.floor (* 255 (math.min 1.0 z)))]))
 
 (fn ray-intersect-scene [r]
   "Return the nearest shape with which RAY intersects, with the point, if any.
