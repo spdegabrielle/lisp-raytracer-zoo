@@ -14,6 +14,10 @@
 ;;; along with this program. If not, see
 ;;; <http://www.gnu.org/licenses/>.
 
+;; I'm not sure of the best way to set this just for this file :x
+(eval-when (:compile-toplevel)
+  (setf *read-default-float-format* 'double-float))
+
 (defun make-some (n) (cons 'some n))
 (defun make-none ()  'none)
 
