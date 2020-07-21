@@ -204,21 +204,21 @@ format (PPM), writing the result to `(current-output-port)'."
 ;;; Scene graph.
 ;;;
 
-(defvar image-width  1920)
-(defvar image-height 1080)
-(defvar image-aspect-ratio (/ image-width image-height))
+(defparameter *image-width*  1920)
+(defparameter *image-height* 1080)
+(defparameter *image-aspect-ratio* (/ *image-width* *image-height*))
 
-(defvar camera-position (make-vec3 :x 8.00 :y 5.00 :z 9.00))
-(defvar camera-target   (make-vec3 :x 0.25 :y 0.00 :z 0.50))
-(defvar camera-up       (make-vec3 :x 0.00 :y 1.00 :z 0.00))
-(defvar camera-fov      30)
+(defparameter *camera-position* (make-vec3 :x 8.00 :y 5.00 :z 9.00))
+(defparameter *camera-target*   (make-vec3 :x 0.25 :y 0.00 :z 0.50))
+(defparameter *camera-up*       (make-vec3 :x 0.00 :y 1.00 :z 0.00))
+(defparameter *camera-fov*      30)
 
-(defvar ambient-light (make-vec3 :x 0.01 :y 0.01 :z 0.01))
-(defvar lights (list (make-spot-light :from (make-vec3 :x 10.00 :y 10.00 :z  5.00)
-                                      :to   (make-vec3 :x  0.00 :y  0.00 :z  0.00)
-                                      :intensity (make-vec3 :x 100.00 :y  96.00 :z  88.00)
-                                      :exponent 50
-                                      :cutoff-angle 15)))
+(defparameter *ambient-light* (make-vec3 :x 0.01 :y 0.01 :z 0.01))
+(defparameter *lights* (list (make-spot-light :from (make-vec3 :x 10.00 :y 10.00 :z  5.00)
+                                              :to   (make-vec3 :x  0.00 :y  0.00 :z  0.00)
+                                              :intensity (make-vec3 :x 100.00 :y  96.00 :z  88.00)
+                                              :exponent 50
+                                              :cutoff-angle 15)))
 
 
 ;;;
@@ -237,7 +237,7 @@ format (PPM), writing the result to `(current-output-port)'."
   (with-slots (ka kd ks p) (material shape)
     (let* ((normal (normal shape position))
            (Ia (with-slots ((x1 x) (y1 y) (z1 z)) ka
-                 (with-slots ((x2 x) (y2 y) (z2 z)) ambient-light
+                 (with-slots ((x2 x) (y2 y) (z2 z)) *ambient-light*
                    (make-vec3 :x (* x1 x2) :y (* y1 y2) :z (* z1 z2)))))
            (Id (apply #'vec3+
                       (mapcar #'(lambda (light)
@@ -250,7 +250,7 @@ format (PPM), writing the result to `(current-output-port)'."
                                         (make-vec3 :x (* x1 x2 scalar)
                                                    :y (* y1 y2 scalar)
                                                    :z (* z1 z2 scalar))))))
-                              lights)))
+                              *lights*)))
            (Is (if ks
                    (apply #'vec3+
                           (mapcar #'(lambda (light)
@@ -266,44 +266,44 @@ format (PPM), writing the result to `(current-output-port)'."
                                             (make-vec3 :x (* x1 x2 scalar)
                                                        :y (* y1 y2 scalar)
                                                        :z (* z1 z2 scalar))))))
-                                  lights))
+                                  *lights*))
                    (make-vec3 :x 0.00 :y 0.00 :z 0.00))))
       (with-slots (x y z) (vec3+ Ia Id Is)
         (make-vec3 :x (min 1.0 x) :y (min 1.0 y) :z (min 1.0 z))))))
 
-(defvar shapes (list (make-sphere :center (make-vec3 :x -0.25 :y 0.00 :z 0.25)
-                                  :radius 1.25
-                                  :material (phong-material (make-vec3 :x 1.0 :y 0.2 :z 0.2)
-                                                            (make-vec3 :x 1.0 :y 0.2 :z 0.2)
-                                                            (make-vec3 :x 2.0 :y 2.0 :z 2.0)
-                                                            20))
-                     (make-plane :p0 (make-vec3 :x  0.00 :y -1.25 :z  0.00)
-                                 :n (make-vec3 :x  0.00 :y  1.00 :z  0.00)
-                                 :material (diffuse-material (make-vec3 :x 1.0 :y 1.0 :z 0.2)
-                                                             (make-vec3 :x 1.0 :y 1.0 :z 0.2)))))
+(defparameter *shapes* (list (make-sphere :center (make-vec3 :x -0.25 :y 0.00 :z 0.25)
+                                          :radius 1.25
+                                          :material (phong-material (make-vec3 :x 1.0 :y 0.2 :z 0.2)
+                                                                    (make-vec3 :x 1.0 :y 0.2 :z 0.2)
+                                                                    (make-vec3 :x 2.0 :y 2.0 :z 2.0)
+                                                                    20))
+                             (make-plane :p0 (make-vec3 :x  0.00 :y -1.25 :z  0.00)
+                                         :n (make-vec3 :x  0.00 :y  1.00 :z  0.00)
+                                         :material (diffuse-material (make-vec3 :x 1.0 :y 1.0 :z 0.2)
+                                                                     (make-vec3 :x 1.0 :y 1.0 :z 0.2)))))
 
 (defun coord-to-ray (x y)
   "Return the ray corresponding to the point X, Y on the viewport plane."
   (let* ((dist 1.0)
-         (top    (* dist (tan (/ (to-radians camera-fov) 2))))
-         (right  (* top image-aspect-ratio))
+         (top    (* dist (tan (/ (to-radians *camera-fov*) 2))))
+         (right  (* top *image-aspect-ratio*))
          (bottom (- top))
          (left   (- right))
-         (W (vec3-normalize (vec3- camera-position camera-target)))
-         (U (vec3-normalize (vec3-cross camera-up W)))
+         (W (vec3-normalize (vec3- *camera-position* *camera-target*)))
+         (U (vec3-normalize (vec3-cross *camera-up* W)))
          (V (vec3-cross W U))
-         (corner (vec3+ camera-position
+         (corner (vec3+ *camera-position*
                         (vec3* left     U)
                         (vec3* bottom   V)
                         (vec3* (- dist) W)))
          (across (vec3* (* 2 right) U))
          (up     (vec3* (* 2 top)   V)))
-    (make-ray :origin camera-position
+    (make-ray :origin *camera-position*
               :direction (vec3-normalize
                           (vec3+ corner
                                  (vec3* x across)
                                  (vec3* y up)
-                                 (vec3* (- 1) camera-position))))))
+                                 (vec3* (- 1) *camera-position*))))))
 
 (defun lerp (a b time)
   "Interpolate between A and B with parameter T."
@@ -332,26 +332,29 @@ point)), if any. Otherwise, return 'none."
            (mapcar #'(lambda (shape)
                        (let ((intersection (intersect ray shape 0.001 10000)))
                          (map-option #'(lambda (time) (list shape time)) intersection)))
-                   shapes)
+                   *shapes*)
            :initial-value (make-none))))
 
-(let ((image (make-array (* image-width image-height) :initial-element '(0 0 0))))
-  (flet ((coord-to-index (x y)
-           (+ x (* y image-width)))
-         (screen-to-viewport (x y)
-           (values (coerce (/ x image-width) 'real)
-                   (coerce (/ (- image-height 1 y) image-height) 'real)))
-         (to-color (u)
-           (mapcar #'(lambda (n) (round (* 255 n))) (vec3-components u))))
-    (dotimes (x image-width)
-      (dotimes (y image-height)
-        (setf (elt image (coord-to-index x y))
-              (multiple-value-bind (x y) (screen-to-viewport x y)
-                (let* ((ray (coord-to-ray x y))
-                       (intersection (ray-intersect-scene ray)))
-                  (if (some-p intersection)
-                      (let ((shape (car (unwrap intersection)))
-                            (position (cadr (unwrap intersection))))
-                        (to-color (shade-pixel shape position (ray-origin ray))))
-                      (ray-color ray))))))))
-  (write-ppm image-width image-height image))
+(defun main ()
+  (let ((image (make-array (* *image-width* *image-height*) :initial-element '(0 0 0))))
+    (flet ((coord-to-index (x y)
+             (+ x (* y *image-width*)))
+           (screen-to-viewport (x y)
+             (values (coerce (/ x *image-width*) 'real)
+                     (coerce (/ (- *image-height* 1 y) *image-height*) 'real)))
+           (to-color (u)
+             (mapcar #'(lambda (n) (round (* 255 n))) (vec3-components u))))
+      (dotimes (x *image-width*)
+        (dotimes (y *image-height*)
+          (setf (elt image (coord-to-index x y))
+                (multiple-value-bind (x y) (screen-to-viewport x y)
+                  (let* ((ray (coord-to-ray x y))
+                         (intersection (ray-intersect-scene ray)))
+                    (if (some-p intersection)
+                        (let ((shape (car (unwrap intersection)))
+                              (position (cadr (unwrap intersection))))
+                          (to-color (shade-pixel shape position (ray-origin ray))))
+                        (ray-color ray))))))))
+    (write-ppm *image-width* *image-height* image)))
+
+(main)
