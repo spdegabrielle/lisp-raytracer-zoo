@@ -14,6 +14,11 @@
 ;;; along with this program. If not, see
 ;;; <http://www.gnu.org/licenses/>.
 
+(defpackage :cl-raytracer
+  (:use :cl :trivia))
+
+(in-package :cl-raytracer)
+
 ;; I'm not sure of the best way to set this just for this file :x
 (eval-when (:compile-toplevel)
   (setf *read-default-float-format* 'double-float))
@@ -55,57 +60,49 @@ format (PPM), writing the result to `(current-output-port)'."
 
 (defun square (n) (* n n))
 
-(defstruct vec3 x y z)
-
 (defun vec3+ (&rest vecs)
   "Return the sum of VECS, as in vector space addition."
-  (if (zerop (length vecs))
-      (make-vec3 :x 0 :y 0 :z 0)
-      (reduce #'(lambda (a b)
-              (with-slots ((x1 x) (y1 y) (z1 z)) a
-                (with-slots ((x2 x) (y2 y) (z2 z)) b
-                  (make-vec3 :x (+ x1 x2)
-                             :y (+ y1 y2)
-                             :z (+ z1 z2)))))
-          (cdr vecs)
-          :initial-value (car vecs))))
+  (reduce #'(lambda (a b)
+              (let-match (((vector x1 y1 z1) a)
+                          ((vector x2 y2 z2) b))
+                (vector (+ x1 x2) (+ y1 y2) (+ z1 z2))))
+          vecs
+          :initial-value #(0.00 0.00 0.00)))
 
 (defun vec3- (&rest vecs)
   "Return the difference of VECS, as in vector space subtraction."
   (if (zerop (length vecs))
-      (make-vec3 :x 0 :y 0 :z 0)
+      #(0.00 0.00 0.00)
       (reduce #'(lambda (a b)
-              (with-slots ((x1 x) (y1 y) (z1 z)) a
-                (with-slots ((x2 x) (y2 y) (z2 z)) b
-                  (make-vec3 :x (- x1 x2)
-                             :y (- y1 y2)
-                             :z (- z1 z2)))))
-          (cdr vecs)
-          :initial-value (car vecs))))
+                  (let-match (((vector x1 y1 z1) a)
+                              ((vector x2 y2 z2) b))
+                    (vector (- x1 x2) (- y1 y2) (- z1 z2))))
+              (cdr vecs)
+              :initial-value (car vecs))))
 
 (defun vec3* (c u)
   "Return the vector U scaled by a constant C, as in vector space scalar
   multiplication."
-  (with-slots (x y z) u
-    (make-vec3 :x (* c x) :y (* c y) :z (* c z))))
+  (let-match (((vector x y z) u))
+    (vector (* c x) (* c y) (* c z))))
 
 (defun vec3-dot (u v)
   "Return the dot product of the vectors U and V."
-  (+ (* (vec3-x u) (vec3-x v))
-     (* (vec3-y u) (vec3-y v))
-     (* (vec3-z u) (vec3-z v))))
+  (let-match (((vector x1 y1 z1) u)
+              ((vector x2 y2 z2) v))
+    (+ (* x1 x2) (* y1 y2) (* z1 z2))))
 
 (defun vec3-cross (u v)
   "Return the cross product of the vectors U and V."
-  (with-slots ((x1 x) (y1 y) (z1 z)) u
-    (with-slots ((x2 x) (y2 y) (z2 z)) v
-      (make-vec3 :x (- (* y1 z2) (* z1 y2))
-                 :y (- (* z1 x2) (* x1 z2))
-                 :z (- (* x1 y2) (* y1 x2))))))
+  (let-match (((vector x1 y1 z1) u)
+              ((vector x2 y2 z2) v))
+    (vector (- (* y1 z2) (* z1 y2))
+            (- (* z1 x2) (* x1 z2))
+            (- (* x1 y2) (* y1 x2)))))
 
 (defun vec3-magnitude (u)
   "Return the magnitude of vector U."
-  (with-slots (x y z) u
+  (let-match (((vector x y z) u))
     (sqrt (+ (square x) (square y) (square z)))))
 
 (defun vec3-normalize (u)
@@ -114,7 +111,8 @@ format (PPM), writing the result to `(current-output-port)'."
 
 (defun vec3-components (u)
   "Return a list (x y z) of the components of vector U."
-  (with-slots (x y z) u (list x y z)))
+  (let-match (((vector x y z) u))
+    (list x y z)))
 
 (defstruct ray origin direction)
 
@@ -194,7 +192,7 @@ format (PPM), writing the result to `(current-output-port)'."
            (pf (vec3-normalize (vec3- point position)))
            (intensity (if (< (vec3-dot pf (vec3-normalize (vec3- target position)))
                              (cos (to-radians cutoff-angle)))
-                          (make-vec3 :x 0.00 :y 0.00 :z 0.00)
+                          (vector 0.00 0.00 0.00)
                           (vec3* (* (/ 1 (square (vec3-magnitude direction)))
                                     (expt (vec3-dot pf (vec3-normalize (vec3- target position)))
                                           (spot-light-exponent light)))
@@ -212,15 +210,15 @@ format (PPM), writing the result to `(current-output-port)'."
 (defparameter *image-height* 1080)
 (defparameter *image-aspect-ratio* (/ *image-width* *image-height*))
 
-(defparameter *camera-position* (make-vec3 :x 8.00 :y 5.00 :z 9.00))
-(defparameter *camera-target*   (make-vec3 :x 0.25 :y 0.00 :z 0.50))
-(defparameter *camera-up*       (make-vec3 :x 0.00 :y 1.00 :z 0.00))
+(defparameter *camera-position* (vector 8.00 5.00 9.00))
+(defparameter *camera-target*   (vector 0.25 0.00 0.50))
+(defparameter *camera-up*       (vector 0.00 1.00 0.00))
 (defparameter *camera-fov*      30)
 
-(defparameter *ambient-light* (make-vec3 :x 0.01 :y 0.01 :z 0.01))
-(defparameter *lights* (list (make-spot-light :from (make-vec3 :x 10.00 :y 10.00 :z  5.00)
-                                              :to   (make-vec3 :x  0.00 :y  0.00 :z  0.00)
-                                              :intensity (make-vec3 :x 100.00 :y  96.00 :z  88.00)
+(defparameter *ambient-light* (vector 0.01 0.01 0.01))
+(defparameter *lights* (list (make-spot-light :from (vector 10.00 10.00 5.00)
+                                              :to   (vector 0.00 0.00 0.00)
+                                              :intensity (vector 100.00 96.00 88.00)
                                               :exponent 50
                                               :cutoff-angle 15)))
 
@@ -240,51 +238,47 @@ format (PPM), writing the result to `(current-output-port)'."
 (defun shade-pixel (shape position origin)
   (with-slots (ka kd ks p) (material shape)
     (let* ((normal (normal shape position))
-           (Ia (with-slots ((x1 x) (y1 y) (z1 z)) ka
-                 (with-slots ((x2 x) (y2 y) (z2 z)) *ambient-light*
-                   (make-vec3 :x (* x1 x2) :y (* y1 y2) :z (* z1 z2)))))
+           (Ia (let-match (((vector x1 y1 z1) ka)
+                           ((vector x2 y2 z2) *ambient-light*))
+                 (vector (* x1 x2) (* y1 y2) (* z1 z2))))
            (Id (apply #'vec3+
                       (mapcar #'(lambda (light)
-                                  (let* ((sample (sample-at light position))
-                                         (direction (light-sample-direction sample))
-                                         (intensity (light-sample-intensity sample))
-                                         (scalar (max (vec3-dot normal direction) 0)))
-                                    (with-slots ((x1 x) (y1 y) (z1 z)) kd
-                                      (with-slots ((x2 x) (y2 y) (z2 z)) intensity
-                                        (make-vec3 :x (* x1 x2 scalar)
-                                                   :y (* y1 y2 scalar)
-                                                   :z (* z1 z2 scalar))))))
+                                  (let-match* ((sample (sample-at light position))
+                                               (direction (light-sample-direction sample))
+                                               (intensity (light-sample-intensity sample))
+                                               (scalar (max (vec3-dot normal direction) 0))
+                                               ((vector x1 y1 z1) kd)
+                                               ((vector x2 y2 z2) intensity))
+                                    (vector (* x1 x2 scalar) (* y1 y2 scalar) (* z1 z2 scalar))))
                               *lights*)))
            (Is (if ks
                    (apply #'vec3+
                           (mapcar #'(lambda (light)
-                                      (let* ((sample (sample-at light position))
-                                             (point  (light-sample-position sample))
-                                             (intensity (light-sample-intensity sample))
-                                             (l (vec3-normalize (vec3- point position)))
-                                             (v (vec3-normalize (vec3- origin position)))
-                                             (r (reflect l normal))
-                                             (scalar (expt (max 0 (vec3-dot v r)) p)))
-                                        (with-slots ((x1 x) (y1 y) (z1 z)) ks
-                                          (with-slots ((x2 x) (y2 y) (z2 z)) intensity
-                                            (make-vec3 :x (* x1 x2 scalar)
-                                                       :y (* y1 y2 scalar)
-                                                       :z (* z1 z2 scalar))))))
+                                      (let-match* ((sample (sample-at light position))
+                                                   (point  (light-sample-position sample))
+                                                   (intensity (light-sample-intensity sample))
+                                                   (l (vec3-normalize (vec3- point position)))
+                                                   (v (vec3-normalize (vec3- origin position)))
+                                                   (r (reflect l normal))
+                                                   (scalar (expt (max 0 (vec3-dot v r)) p))
+                                                   ((vector x1 y1 z1) ks)
+                                                   ((vector x2 y2 z2) intensity))
+                                        (vector (* x1 x2 scalar) (* y1 y2 scalar) (* z1 z2 scalar))))
                                   *lights*))
-                   (make-vec3 :x 0.00 :y 0.00 :z 0.00))))
-      (with-slots (x y z) (vec3+ Ia Id Is)
-        (make-vec3 :x (min 1.0 x) :y (min 1.0 y) :z (min 1.0 z))))))
+                   (vector 0.00 0.00 0.00))))
+      (let-match* (((vector x y z) (vec3+ Ia Id Is)))
+        (vector (min 1.0 x) (min 1.0 y) (min 1.0 z))))))
 
-(defparameter *shapes* (list (make-sphere :center (make-vec3 :x -0.25 :y 0.00 :z 0.25)
+(defparameter *shapes* (list (make-sphere :center (vector -0.25 0.00 0.25)
                                           :radius 1.25
-                                          :material (phong-material (make-vec3 :x 1.0 :y 0.2 :z 0.2)
-                                                                    (make-vec3 :x 1.0 :y 0.2 :z 0.2)
-                                                                    (make-vec3 :x 2.0 :y 2.0 :z 2.0)
+                                          :material (phong-material (vector 1.0 0.2 0.2)
+                                                                    (vector 1.0 0.2 0.2)
+                                                                    (vector 2.0 2.0 2.0)
                                                                     20))
-                             (make-plane :p0 (make-vec3 :x  0.00 :y -1.25 :z  0.00)
-                                         :n (make-vec3 :x  0.00 :y  1.00 :z  0.00)
-                                         :material (diffuse-material (make-vec3 :x 1.0 :y 1.0 :z 0.2)
-                                                                     (make-vec3 :x 1.0 :y 1.0 :z 0.2)))))
+                             (make-plane :p0 (vector 0.00 -1.25 0.00)
+                                         :n (vector 0.00 1.00 0.00)
+                                         :material (diffuse-material (vector 1.0 1.0 0.2)
+                                                                     (vector 1.0 1.0 0.2)))))
 
 (defun coord-to-ray (x y)
   "Return the ray corresponding to the point X, Y on the viewport plane."
