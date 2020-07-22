@@ -14,13 +14,14 @@
 ;;; along with this program. If not, see
 ;;; <http://www.gnu.org/licenses/>.
 
-(defpackage :cl-raytracer
-  (:use :cl :trivia))
+(defpackage #:cl-raytracer
+  (:use :cl :trivia)
+  (:export "main"))
 
-(in-package :cl-raytracer)
+(in-package #:cl-raytracer)
 
-;; I'm not sure of the best way to set this just for this file :x
 (eval-when (:compile-toplevel)
+  ;; I'm not sure of the best way to set this just for this file :x
   (setf *read-default-float-format* 'double-float))
 
 
@@ -334,5 +335,3 @@ point), if any. Otherwise, return nil."
                        (to-color (shade-pixel shape position (ray-origin ray)))))
                     (_ (ray-color ray))))))))
     (write-ppm *image-width* *image-height* image)))
-
-(main)
