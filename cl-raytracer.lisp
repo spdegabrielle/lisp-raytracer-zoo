@@ -23,22 +23,6 @@
 (eval-when (:compile-toplevel)
   (setf *read-default-float-format* 'double-float))
 
-(defun make-some (n) (cons 'some n))
-(defun make-none ()  'none)
-
-(defun some-p (n) (and (consp n) (eq 'some (car n))))
-(defun none-p (n) (eq 'none n))
-
-(defun unwrap (n)
-  (if (some-p n)
-      (cdr n)
-      (error "Tried to unwrap `none'.")))
-
-(defun map-option (proc n)
-  (if (some-p n)
-      (make-some (funcall proc (unwrap n)))
-      n))
-
 
 ;;;
 ;;; Image encoding.
@@ -137,13 +121,11 @@ format (PPM), writing the result to `(current-output-port)'."
     (with-slots (origin direction) ray
       (let* ((normal (vec3-normalize plane-normal))
              (denominator (vec3-dot direction normal)))
-        (if (zerop denominator)
-            (make-none)
+        (if (not (zerop denominator))
             (let ((time (/ (vec3-dot (vec3- p0 origin) normal)
                            denominator)))
               (if (<= t-min time t-max)
-                  (make-some time)
-                  (make-none))))))))
+                  time)))))))
 
 (defmethod normal ((shape plane) position)
   (vec3-normalize (plane-n shape)))
@@ -169,8 +151,7 @@ format (PPM), writing the result to `(current-output-port)'."
                        (/ (- B) (* 2 A)))))
         (if (and (not (minusp discriminant))
                  (<= t-min time t-max))
-            (make-some time)
-            (make-none))))))
+            time)))))
 
 (defmethod normal ((shape sphere) position)
   (vec3-normalize (vec3- position (sphere-center shape))))
@@ -316,43 +297,38 @@ format (PPM), writing the result to `(current-output-port)'."
           (round (* 255 (lerp 1.0 1.0 time))))))
 
 (defun ray-intersect-scene (ray)
-  "Return the nearest shape with which RAY intersects as (some . (shape .
-point)), if any. Otherwise, return 'none."
-  (map-option
-   #'(lambda (pair)
-       (list (car pair) (point-at ray (cadr pair))))
-   (reduce #'(lambda (a b)
-               (cond ((none-p a) b)
-                     ((none-p b) a)
-                     (t (let ((t1 (unwrap a))
-                              (t2 (unwrap b)))
-                          (if (> (cadr t1) (cadr t2)) b a)))))
-           (mapcar #'(lambda (shape)
-                       (let ((intersection (intersect ray shape 0.001 10000)))
-                         (map-option #'(lambda (time) (list shape time)) intersection)))
-                   *shapes*)
-           :initial-value (make-none))))
+  "Return the nearest shape with which RAY intersects as (shape .
+point), if any. Otherwise, return nil."
+  (reduce #'(lambda (a b)
+              (cond ((not a) b)
+                    ((not b) a)
+                    (t (let-match (((list _ t1) a)
+                                   ((list _ t2) b))
+                         (if (> t1 t2) b a)))))
+          (mapcar #'(lambda (shape)
+                      (let ((intersection (intersect ray shape 0.001 10000)))
+                        (if intersection (list shape intersection))))
+                  *shapes*)
+          :initial-value nil))
 
 (defun main ()
   (let ((image (make-array (* *image-width* *image-height*) :initial-element '(0 0 0))))
     (flet ((coord-to-index (x y)
              (+ x (* y *image-width*)))
            (screen-to-viewport (x y)
-             (values (coerce (/ x *image-width*) 'double-float)
-                     (coerce (/ (- *image-height* 1 y) *image-height*) 'double-float)))
+             (list (coerce (/ x *image-width*) 'double-float)
+                   (coerce (/ (- *image-height* 1 y) *image-height*) 'double-float)))
            (to-color (u)
              (mapcar #'(lambda (n) (round (* 255 n))) (vec3-components u))))
       (dotimes (x *image-width*)
         (dotimes (y *image-height*)
           (setf (elt image (coord-to-index x y))
-                (multiple-value-bind (x y) (screen-to-viewport x y)
-                  (let* ((ray (coord-to-ray x y))
-                         (intersection (ray-intersect-scene ray)))
-                    (if (some-p intersection)
-                        (let ((shape (car (unwrap intersection)))
-                              (position (cadr (unwrap intersection))))
-                          (to-color (shade-pixel shape position (ray-origin ray))))
-                        (ray-color ray))))))))
+                (let ((ray (apply #' coord-to-ray (screen-to-viewport x y))))
+                  (match (ray-intersect-scene ray)
+                    ((list shape time)
+                     (let ((position (point-at ray time)))
+                       (to-color (shade-pixel shape position (ray-origin ray)))))
+                    (_ (ray-color ray))))))))
     (write-ppm *image-width* *image-height* image)))
 
 (main)
