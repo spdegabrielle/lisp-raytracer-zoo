@@ -208,16 +208,20 @@ format (PPM), writing the result to `(current-output-port)'."
 ;;; Materials.
 ;;;
 
-(defstruct material ka kd ks kr kt p ior)
-(defun diffuse-material (ka kd)      (make-material :ka ka :kd kd))
-(defun phong-material   (ka kd ks p) (make-material :ka ka :kd kd :ks ks :p p))
+(defstruct material ka kd ks kr kt exponent ior)
+
+(defun diffuse-material (ka kd)
+  (make-material :ka ka :kd kd))
+
+(defun phong-material (ka kd ks exponent)
+  (make-material :ka ka :kd kd :ks ks :exponent exponent))
 
 (defun reflect (l n)
   "Compute reflected vector, by mirroring l around n."
   (vec3- (vec3* (* 2.00 (vec3-dot n l)) n) l))
 
 (defun shade-pixel (shape position origin)
-  (with-slots (ka kd ks p) (material shape)
+  (with-slots (ka kd ks exponent) (material shape)
     (let* ((normal (normal shape position))
            (Ia (let-match (((vector x1 y1 z1) ka)
                            ((vector x2 y2 z2) *ambient-light*))
@@ -241,7 +245,7 @@ format (PPM), writing the result to `(current-output-port)'."
                                                    (l (vec3-normalize (vec3- point position)))
                                                    (v (vec3-normalize (vec3- origin position)))
                                                    (r (reflect l normal))
-                                                   (scalar (expt (max 0 (vec3-dot v r)) p))
+                                                   (scalar (expt (max 0 (vec3-dot v r)) exponent))
                                                    ((vector x1 y1 z1) ks)
                                                    ((vector x2 y2 z2) intensity))
                                         (vector (* x1 x2 scalar) (* y1 y2 scalar) (* z1 z2 scalar))))
