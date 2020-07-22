@@ -294,8 +294,8 @@ format (PPM), writing the result to `(current-output-port)'."
 
 (defun ray-color (r)
   "Return an arbitrary color for R."
-  (let* ((y (vec3-y (ray-direction r)))
-         (time (* 0.5 (+ y 1.0))))
+  (let-match* (((vector _ y _) (ray-direction r))
+               (time (* 0.5 (+ y 1.0))))
     (list (round (* 255 (lerp 1.0 0.5 time)))
           (round (* 255 (lerp 1.0 0.7 time)))
           (round (* 255 (lerp 1.0 1.0 time))))))
