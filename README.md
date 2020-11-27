@@ -1,3 +1,10 @@
+Forked from https://git.sr.ht/~jakob/lisp-raytracer-zoo
+
+Referenced by http://jakob.space/blog/thoughts-on-lisps.html
+
+
+----
+
 # Lisp Raytracer Zoo
 
 This repository contains several implementations of the same small programf, to
